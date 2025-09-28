@@ -1,0 +1,351 @@
+---
+title: "PSTAT 131 Final Project"
+author: "Lance Sanchez"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Predicting Song Genre
+## Using machine learning models and Spotify data to classify a song into a certain genre giving certain sonical features
+### Lance Sanchez
+### UCSB Spring 2025
+
+# Table of Contents:
+
+### 1. Introduction
+
+### 2. Data Citation
+
+### 3. Exploratory Data Analysis
+
+### 4. Data Splitting and Cross-Validation
+
+### 5. Model Fitting
+
+### 6. Model Selection and Performance
+
+### 7. Conclusion
+
+# 1. Introduction:
+
+This project focuses on building a classification model that uses Spotify data to predict the genre of a song. A classification model is a type of machine learning algorithm designed to categorize data into predefined groups or labels—in this case, music genres such as pop, rock, hip-hop, and jazz. The dataset contains various audio features provided by Spotify, such as tempo, energy, danceability, and acousticness, which quantify different aspects of a song’s sound. These features serve as input variables, or predictors, that the model analyzes to determine the most likely genre for a given track. Understanding and processing these numerical features effectively is crucial to training a model that can make accurate genre predictions.
+
+
+<div class="tenor-gif-embed" data-postid="24132633" data-share-method="host" data-aspect-ratio="1.66667" data-width="100%"><a href="https://tenor.com/view/eminem-cicirinella-che-teneva-gif-24132633">Eminem Cicirinella GIF</a>from <a href="https://tenor.com/search/eminem-gifs">Eminem GIFs</a></div> <script type="text/javascript" async src="https://tenor.com/embed.js"></script>
+
+
+The primary goal of this project is to explore the relationship between a song’s audio characteristics and its genre label, and to use this insight to construct a reliable predictive model. By evaluating the model’s performance on a test dataset, we can assess how well it generalizes to new, unseen songs. The project also highlights the value of data preprocessing, feature selection, and algorithm tuning in machine learning workflows. Beyond building an accurate model, another objective is to interpret which audio features are most influential in genre classification, potentially revealing patterns in how different types of music are structured. This has practical applications in music recommendation systems, playlist generation, and automated music tagging.
+
+# 2. Data Citation:
+
+The Spotify Tracks Genre Dataset, compiled by the Kaggle user “TheDevastator” in 2021, is a robust collection of audio and metadata information derived from Spotify’s Web API using Python scripting. This dataset is hosted on the Kaggle platform and offers an extensive representation of musical diversity by including tracks across 125 distinct genres. It is particularly valuable for data analysis and machine learning projects centered around music classification, trend identification, and predictive modeling.
+
+The dataset features more than 20 well-structured columns that capture both general metadata and advanced audio features. Key metadata columns include artists, identifying the performers or groups behind each track, and album_name, which situates the track within its album context. The track_name serves as a unique identifier, while the popularity column—ranging from 0 to 100—quantifies how widely a track is appreciated by Spotify users. The duration_ms column indicates the track’s length in milliseconds, providing insights into average durations across genres. The explicit column flags whether a song contains explicit content, enabling content-related analysis across genres or over time.
+
+The dataset’s rich array of audio features is sourced from Spotify’s proprietary algorithms. These include danceability, which measures how suitable a track is for dancing based on beat regularity and rhythm strength; energy, which captures the track's intensity; and key, indicating the musical key using an integer representation (e.g., 0 = C, 1 = C#/Db). Additional features like loudness (measured in decibels), mode (major or minor), and speechiness (presence of spoken words) support detailed musical profiling. Other noteworthy features include acousticness, which estimates the acoustic nature of a track; instrumentalness, indicating the likelihood of a track being instrumental; liveness, measuring the presence of live audience sounds; valence, reflecting the emotional positivity of a song; tempo, indicating beats per minute (BPM); and time_signature, which identifies the rhythmic structure.
+
+<div class="tenor-gif-embed" data-postid="4054113887102447591" data-share-method="host" data-aspect-ratio="1.81752" data-width="100%"><a href="https://tenor.com/view/shake-it-shake-itzy-cake-itzy-cake-kpop-gif-4054113887102447591">Shake It Shake Itzy GIF</a>from <a href="https://tenor.com/search/shake+it+shake-gifs">Shake It Shake GIFs</a></div> <script type="text/javascript" async src="https://tenor.com/embed.js"></script>
+
+Overall, this dataset is well-suited for researchers, data scientists, music theorists, and enthusiasts seeking to explore the complex relationships within music. It can be applied in various domains such as genre prediction, popularity forecasting, and emotional analysis of tracks. The dataset enables users to combine quantitative music features with qualitative insights, making it a valuable tool for both technical and artistic exploration.
+
+## Link to Dataset:
+
+https://www.kaggle.com/datasets/thedevastator/spotify-tracks-genre-dataset
+
+# 3. Exploratory Data Analysis:
+
+Let's start by loading the dataset using the readr package and cleaning up the column names with clean_names() from the janitor package. This makes the variable names consistent and easier to reference in your code. Once the data is loaded, take a quick look using head() and dim() to understand its structure, and explore the track_genre column with unique() to get a sense of the genres you're working with. You’ll likely notice that some genres are underrepresented, which means you’ll need to do some class balancing before building a reliable model.
+
+```{r, message=FALSE}
+library(janitor)
+library(readr)
+
+song_raw <- read_csv("train.csv")
+
+# Clean column names using janitor
+song_clean <- clean_names(song_raw)
+
+head(song_clean)
+```
+
+Next, let’s clean the data using dplyr. Begin by removing unnecessary columns like unnamed_0, track_id, artists, album_name, and track_name. These are either identifiers or text-heavy fields that aren’t useful for predicting genre. Then, filter the dataset to keep only songs with a popularity score over 70. This focuses your analysis on more popular tracks that are likely to have better-defined characteristics. To handle class imbalance, group the data by track_genre, filter for genres with at least 100 tracks, and randomly sample 100 songs from each group. This ensures each genre has an equal number of samples, which helps prevent your model from being biased toward more common genres.
+
+```{r, message=FALSE}
+library(dplyr)
+library(forcats)
+
+song_clean <- song_clean %>%
+  # Remove unwanted columns
+  select(-unnamed_0, -track_id, -artists, -album_name, -track_name) %>%
+  
+  # Filter for songs with popularity over 70
+  filter(popularity > 70) %>%
+  
+  # Only keep genres with at least 100 songs, then sample 100 from each
+  group_by(track_genre) %>%
+  filter(n() >= 100) %>%
+  slice_sample(n = 100) %>%
+  ungroup()
+```
+
+To better understand the relationships between your numeric predictors, calculate a correlation matrix and visualize it using corrplot. Select only the numeric columns, compute the correlations, and then plot the upper triangle with colored squares. Adjust the label sizes to make the plot easy to read. This step can help you spot multicollinearity or identify features that might be redundant.
+
+```{r}
+library(ggplot2)
+
+# Create bar chart with flipped coordinates for better readability
+ggplot(song_clean, aes(x = fct_infreq(track_genre))) +  # reorder by frequency
+  geom_bar(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Count of Songs by Genre", x = "Genre", y = "Count") +
+  coord_flip() +  # flip x and y axes
+  theme(axis.text.y = element_text(size = 5))
+```
+
+# 4. Data Splitting and Cross-Validation
+
+With the dataset cleaned and balanced, it’s time to prepare for modeling. First, filter out any rows with missing track_genre values, and convert both track_genre and explicit to factor variables so they’re treated correctly in your model. Then, use initial_split() from the rsample package to split the data into training and testing sets, stratifying by genre to maintain balance. Don’t forget to set a random seed for reproducibility. To further validate your model, set up 5-fold cross-validation using vfold_cv() and stratify by genre again. This helps you evaluate model performance more reliably and tune hyperparameters without overfitting.
+
+```{r, warning=FALSE, message=FALSE}
+song_clean <- song_clean %>%
+  filter(!is.na(track_genre)) %>%
+  mutate(
+    track_genre = factor(track_genre),
+    explicit = factor(explicit)
+  )
+
+library(rsample)
+
+set.seed(123)
+song_split <- initial_split(song_clean, prop = 0.75, strata = track_genre)
+train_data <- training(song_split)
+test_data  <- testing(song_split)
+
+# Perform 5-fold cross-validation, stratified by track_genre
+music_folds <- vfold_cv(train_data, v = 5, strata = track_genre)
+
+music_folds
+```
+
+To better understand the relationships between your numeric predictors, calculate a correlation matrix and visualize it using corrplot. Select only the numeric columns, compute the correlations, and then plot the upper triangle with colored squares. Adjust the label sizes to make the plot easy to read. This step can help you spot multicollinearity or identify features that might be redundant.
+
+```{r,  message=FALSE}
+library(corrplot)
+
+# Select only numeric variables from the training set
+song_numeric <- train_data %>%
+  select(where(is.numeric))
+
+# Compute correlation matrix
+cor_matrix <- cor(song_numeric, use = "complete.obs")
+
+# Create the correlation plot
+corrplot(cor_matrix,
+         method = "color",     # use colored squares
+         type = "upper",       # only upper triangle
+         tl.col = "black",     # text color
+         tl.srt = 45,          # rotate axis labels
+         addCoef.col = "black",# show correlation values
+         number.cex = 0.5,     # shrink correlation number size
+         tl.cex = 0.6,         # shrink axis label size
+         mar = c(0, 0, 1, 0))  # reduce margins
+```
+
+Finally, let’s build a preprocessing pipeline using the recipes package. Specify track_genre as the target and include all other columns as predictors. Use step_dummy() to convert categorical variables into dummy variables, and then apply step_center() and step_scale() to standardize the numeric features. This ensures all predictors are on the same scale, which is crucial for models like Elastic Net. With this preprocessing pipeline in place, your data is now ready for training and evaluation.
+
+```{r,  message=FALSE}
+library(recipes)
+
+# Create recipe using cleaned data
+music_recipe <- recipe(track_genre ~ ., data = song_clean) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+
+music_recipe
+```
+
+# 5. Model Fitting:
+
+Let’s now build an Elastic Net classifier to predict the track genre. Start by defining a model specification using multinom_reg() from the parsnip package, and set both penalty and mixture to tune() so we can optimize them during cross-validation. We’ll use glmnet as the engine and set the mode to classification since we’re predicting categories. Then, let’s create a workflow that combines this model with the preprocessing recipe we built earlier. To tune the model, let’s generate a regular grid using grid_regular() to explore combinations of penalty strengths and mixing parameters. This helps us find the best balance between L1 and L2 regularization.
+
+```{r,  message=FALSE}
+library(tidymodels)
+
+# Set up elastic net model with tunable penalty and mixture
+elastic_net_model <- multinom_reg(
+  mode = "classification",
+  penalty = tune(),   # regularization strength
+  mixture = tune()    # balance between L1 (lasso) and L2 (ridge)
+) %>%
+  set_engine("glmnet")
+
+# Create workflow with recipe
+music_workflow <- workflow() %>%
+  add_model(elastic_net_model) %>%
+  add_recipe(music_recipe)
+
+# Create regular grid for tuning
+elastic_grid <- grid_regular(
+  penalty(range = c(0.01, 3)),
+  mixture(range = c(0, 1)),
+  levels = 10
+)
+```
+
+Let’s then build a Random Forest classifier to predict the track genre. Begin by specifying the model using rand_forest() from the parsnip package, and set mtry, trees, and min_n to tune() so we can optimize them through cross-validation. We’ll use "ranger" as the engine and specify "classification" as the mode. Next, create a workflow that combines this model with the preprocessing recipe we’ve already defined. To tune the model, define a regular grid using grid_regular() that explores different values for the number of variables tried at each split (mtry), the total number of trees, and the minimum number of observations required in a node. This setup helps us identify the most effective hyperparameter combination for our classification task.
+
+```{r}
+library(tidymodels)
+
+# Set up random forest model with tunable hyperparameters
+rf_model <- rand_forest(
+  mode = "classification",
+  mtry = tune(),     # num variables considered at each split
+  trees = tune(),    # num trees in forest
+  min_n = tune()     # min num of observations in a node
+) %>%
+  set_engine("ranger", importance = "impurity")
+
+# Create workflow with recipe
+rf_workflow <- workflow() %>%
+  add_model(rf_model) %>%
+  add_recipe(music_recipe)
+
+# Define regular tuning grid
+rf_grid <- grid_regular(
+  mtry(range = c(1, 15)),
+  trees(range = c(100, 1000)),
+  min_n(range = c(2, 20)),
+  levels = 8
+)
+```
+
+Once we’ve saved our tuning results for both the Elastic Net and Random Forest models, let’s read them back into the environment using readRDS(). Then, let’s visualize the performance of each model across the tuning grid with autoplot(), which gives us a sense of how each parameter combination performed in terms of ROC AUC.
+
+Elastic Net:
+```{r}
+# Tune elastic net model on cross-validation folds (Commented out to reduce writing time)
+#set.seed(123)
+#elastic_results <- tune_grid(
+#  music_workflow,
+#  resamples = music_folds,
+#  grid = elastic_grid,
+#  metrics = metric_set(roc_auc))
+
+# Save results
+#saveRDS(elastic_results, "elastic_results.rds")
+
+# Read the RDS file and assign it to an object
+elastic_results <- readRDS("elastic_results.rds")
+
+# Visualize performance
+autoplot(elastic_results)
+```
+
+Random Forest:
+```{r}
+#library(ranger)
+
+# Tune random forest model on cross-validation folds (Commented out to reduce writing time)
+#set.seed(123)
+#rf_results <- tune_grid(
+#  rf_workflow,
+#  resamples = music_folds,
+#  grid = rf_grid,
+#  metrics = metric_set(roc_auc))
+
+# Save results
+#saveRDS(rf_results, "rf_results.rds")
+
+# Read the RDS file and assign it to an object
+rf_results <- readRDS("rf_results.rds")
+
+# Visualize performance
+autoplot(rf_results)
+```
+
+# 6. Model Selection and Performance:
+
+After saving the tuning results using saveRDS(), load them back with readRDS() and visualize model performance across parameter combinations using autoplot(). Use show_best() to extract top-performing configurations for both models based on ROC AUC.
+
+Finalize the best-performing Random Forest model using select_best() and finalize_model(). Fit the finalized workflow to the training data.
+
+To evaluate the final model on the test set, generate class probabilities and predicted labels. Use roc_curve() and autoplot() to plot ROC curves for each class. Generate a confusion matrix using conf_mat() and autoplot() to visualize model accuracy and errors.
+
+```{r}
+# Best elastic net model
+show_best(elastic_results, metric = "roc_auc")
+
+# Best random forest model
+show_best(rf_results, metric = "roc_auc")
+```
+
+Looking at these results, we can see that Random Forest appears to work better overall than Elastic Net, so let's proceed with that as we finalize and fit our final model.
+
+```{r}
+# Load best hyperparameters from tuning
+best_rf <- select_best(rf_results, metric = "roc_auc")
+
+# Finalize model with best hyperparameters
+final_rf_model <- finalize_model(rf_model, best_rf)
+
+# Final workflow with best model
+final_rf_workflow <- workflow() %>%
+  add_model(final_rf_model) %>%
+  add_recipe(music_recipe)
+
+# Fit final model to training data
+final_rf_fit <- fit(final_rf_workflow, data = train_data)
+```
+
+Let’s now interpret the fitted Random Forest model by visualizing variable importance. Use the extract_fit_parsnip() function to access the trained model and then pass it to the vip() function to plot which features contributed most to the classification.
+
+```{r,  message=FALSE}
+library(vip)
+
+# Extract fitted random forest model
+rf_fit_extracted <- extract_fit_parsnip(final_rf_fit)$fit
+
+# Plot variable importance
+vip(rf_fit_extracted)
+```
+
+To evaluate our model on the test set, let’s generate class probability predictions and predicted labels, then bind these with the actual genre labels from the test data. We’ll extract the appropriate columns and use roc_curve() and autoplot() to visualize ROC curves for each class. Finally, let’s assess classification accuracy using a confusion matrix, visualized as a heatmap with conf_mat() and autoplot(). This gives us a clear picture of how well the model distinguished between track genres.
+
+```{r, fig.width=10,fig.height=6}
+# Make predictions on test set
+rf_predictions <- predict(final_rf_fit, test_data, type = "prob") %>%
+  bind_cols(predict(final_rf_fit, test_data)) %>%
+  bind_cols(test_data %>% select(track_genre))
+
+# Get class labels
+class_labels <- levels(test_data$track_genre)
+
+# Build correct column names
+pred_cols <- paste0(".pred_", class_labels)
+
+# Generate multiclass ROC curves
+rf_predictions %>%
+  roc_curve(truth = track_genre, !!!syms(pred_cols)) %>%
+  autoplot()
+
+# Confusion matrix and heatmap
+rf_predictions %>%
+  conf_mat(truth = track_genre, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+The ROC curves and confusion matrix suggest the model performs well on distinct genres like reggaeton, metal, house, and k-pop, with high sensitivity and clear diagonal hits. However, it struggles with similar genres like alt-rock, alternative, and indie, which show more overlap and frequent misclassifications. Most errors occur between related genres, indicating the model captures broad patterns but lacks precision for fine-grained distinctions. To improve, we may need richer features or a hierarchical approach to genre classification.
+
+# 7. Conclusion:
+
+The ROC curves and confusion matrix suggest the model performs well on distinct genres with strong and unique audio features. However, it struggles with similar genres, highlighting the challenge of classifying music styles with overlapping characteristics. Elastic Net offered useful baseline results, but the Random Forest model outperformed it in both ROC AUC and accuracy.
+
+Next steps could involve using more sophisticated models (like gradient boosting or neural networks), incorporating lyrics or additional metadata, and experimenting with hierarchical genre classification. Overall, this project demonstrates how machine learning can be effectively applied to audio feature data to uncover insights and build powerful music classification tools.
+
+<div class="tenor-gif-embed" data-postid="7683933399502148428" data-share-method="host" data-aspect-ratio="1.77857" data-width="100%"><a href="https://tenor.com/view/thank-u-next-ariana-italy-needs-ariana-thank-u-next-perfume-arianaitaly-gif-7683933399502148428">Thank U Next Ariana GIF</a>from <a href="https://tenor.com/search/thank+u+next-gifs">Thank U Next GIFs</a></div> <script type="text/javascript" async src="https://tenor.com/embed.js"></script>
